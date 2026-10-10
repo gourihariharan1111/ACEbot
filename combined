@@ -1,0 +1,1008 @@
+import os
+import json
+import time
+import requests
+import gradio as gr
+
+from pathlib import Path
+from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+
+from google import genai
+from google.genai import types
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+load_dotenv()
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+SERPER_API_KEY = os.getenv("SERPER_API_KEY")
+
+MODEL_NAME = "gemini-3.8-flash"
+DATABASE_FILE = "competition_database.json"
+PLAYER_DB_FILE = "player_database.json"
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0 Safari/537.36"
+    )
+}
+
+if not GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY not found in .env")
+
+if not SERPER_API_KEY:
+    raise ValueError("SERPER_API_KEY not found in .env")
+
+
+client = genai.Client(api_key=GEMINI_API_KEY)
+
+def ask_gemini(prompt, max_retries=3):
+
+    for attempt in range(1, max_retries + 1):
+
+        try:
+
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json"
+                )
+            )
+
+            return response.text
+
+        except Exception as e:
+
+            print(
+                f"Gemini error "
+                f"(attempt {attempt}/{max_retries}): {e}"
+            )
+
+            if attempt < max_retries:
+                time.sleep(attempt * 5)
+
+    return None
+
+# ============================================================
+# CEV PLAYER DETAILS PIPELINE
+# ============================================================
+
+def search_player(player_name):
+
+    url = "https://google.serper.dev/search"
+
+    query = (
+        f'site:www-old.cev.eu/Competition-Area/PlayerDetails.aspx '
+        f'"{player_name}"'
+    )
+
+    payload = {
+        "q": query
+    }
+
+    headers = {
+        "X-API-KEY": SERPER_API_KEY,
+        "Content-Type": "application/json"
+    }
+
+    try:
+
+        response = requests.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        return data.get("organic", [])[:3]
+
+    except Exception as e:
+
+        print(f"Serper error: {e}")
+
+        return []
+
+
+def select_player_url(
+    player_name,
+    search_results
+):
+
+    if not search_results:
+        return None
+
+    results_text = "\n\n".join(
+        [
+            f"Result {i+1}:\n"
+            f"Title: {r.get('title')}\n"
+            f"Link: {r.get('link')}\n"
+            f"Snippet: {r.get('snippet', '')}"
+            for i, r in enumerate(search_results)
+        ]
+    )
+
+    prompt = f"""
+You are an assistant routing search results. The user searched for the volleyball player "{player_name}".
+Here are the top search results:
+
+{results_text}
+
+Rules:
+1. If the results clearly point to ONE specific player that the user most likely intended, return this JSON: {{"status": "clear", "url": "the_url_here"}}
+2. If the search is ambiguous because the results show multiple DIFFERENT players (for example, different first names with the searched surname), return this JSON: {{"status": "ambiguous", "options": ["Name 1", "Name 2", "Name 3"]}}
+
+Return ONLY valid JSON and do not include any other text.
+"""
+
+    response = ask_gemini(prompt)
+
+    if not response:
+        return None
+
+    try:
+
+        return json.loads(response)
+
+    except json.JSONDecodeError:
+
+        print("Invalid Gemini JSON:")
+        print(response)
+
+        return None
+
+
+def get_player_page_text(url):
+
+    try:
+
+        response = requests.get(
+            url,
+            headers=HEADERS,
+            timeout=30
+        )
+
+        response.raise_for_status()
+
+    except Exception as e:
+
+        print(f"CEV request error: {e}")
+
+        return None
+
+    soup = BeautifulSoup(
+        response.text,
+        "html.parser"
+    )
+
+    return soup.get_text(
+        separator=' ',
+        strip=True
+    )
+
+
+def extract_player_details(
+    player_name,
+    clean_text
+):
+
+    prompt = f"""
+Analyze the following text data regarding the volleyball player '{player_name}'.
+Return the result as a valid JSON object. It must ONLY contain the following keys and no surrounding explanation or markdown:
+- full_name (str, the player's full and correctly spelled name)
+- country (str, nationality or the country the player represents)
+- clubs (list of strings, all clubs the player has played for mentioned in the data)
+- competitions (list of strings, all tournaments or leagues the player has participated in mentioned in the data)
+
+If any detail is missing from the text data, set its value to null or an empty list ([]). Do not guess or hallucinate any information.
+
+Data to analyze:
+{clean_text}
+"""
+
+    response = ask_gemini(prompt)
+
+    if not response:
+        return None
+
+    try:
+
+        return json.loads(response)
+
+    except json.JSONDecodeError:
+
+        print("Gemini returned invalid JSON:")
+        print(response)
+
+        return None
+
+
+def save_player_details(data):
+
+    path = Path(PLAYER_DB_FILE)
+
+    if path.exists():
+
+        try:
+
+            with open(
+                path,
+                "r",
+                encoding="utf-8"
+            ) as f:
+
+                database = json.load(f)
+
+            if not isinstance(database, list):
+                database = []
+
+        except Exception:
+
+            database = []
+
+    else:
+
+        database = []
+
+    player_name = data.get("full_name")
+
+    # Replace existing player
+    database = [
+        item
+        for item in database
+        if item.get("full_name")
+        != player_name
+    ]
+
+    database.append(data)
+
+    with open(
+        path,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+        json.dump(
+            database,
+            f,
+            indent=4,
+            ensure_ascii=False
+        )
+
+
+def format_player_result(data):
+
+    if not data:
+        return "❌ No data was extracted."
+
+    output = []
+
+    output.append(
+        f"### {data.get('full_name', 'Unknown Player')}"
+    )
+
+    output.append("")
+
+    output.append(
+        f"**Country:** {data.get('country', 'Unknown')}"
+    )
+
+    output.append("")
+
+    output.append("**Clubs:**")
+
+    clubs = data.get("clubs", [])
+
+    if clubs:
+        output.append(", ".join(clubs))
+    else:
+        output.append("None listed")
+
+    output.append("")
+
+    output.append("**Competitions:**")
+
+    comps = data.get("competitions", [])
+
+    if comps:
+        output.append(", ".join(comps))
+    else:
+        output.append("None listed")
+
+    return "\n".join(output)
+
+
+def get_player_details(
+    player_name,
+    progress=gr.Progress()
+):
+
+    if not player_name or not player_name.strip():
+        return "⚠️ Please enter a player name."
+
+    player_name = player_name.strip()
+
+    progress(0.05, desc="Starting...")
+
+    print("\n" + "=" * 60)
+    print(f"PLAYER: {player_name}")
+    print("=" * 60)
+
+    progress(0.10, desc="Searching CEV through Google...")
+
+    search_results = search_player(
+        player_name
+    )
+
+    if not search_results:
+        return (
+            f"❌ **No player found.**\n\n"
+            f"Could not find any player named '{player_name}'."
+        )
+
+    print(f"Found {len(search_results)} search results.")
+
+    progress(
+        0.25,
+        desc="Identifying the correct CEV profile..."
+    )
+
+    url_data = select_player_url(
+        player_name,
+        search_results
+    )
+
+    if not url_data:
+        return (
+            "❌ **Could not process the search results.**"
+        )
+
+    if url_data.get("status") == "ambiguous":
+
+        options_list = url_data.get("options", [])
+
+        if options_list:
+
+            options_str = ", ".join(options_list)
+
+            return (
+                f"⚠️ The search returned multiple matches. "
+                f"Did you mean one of these: {options_str}?"
+            )
+
+        else:
+
+            return (
+                "⚠️ The search was too ambiguous. "
+                "Please provide the player's full name."
+            )
+
+    elif url_data.get("status") == "clear" and url_data.get("url"):
+
+        link = url_data.get("url")
+
+        print(f"Player URL: {link}")
+
+    else:
+
+        return (
+            f"❌ Could not determine the correct player profile "
+            f"for '{player_name}'."
+        )
+
+    progress(
+        0.40,
+        desc="Downloading CEV player page..."
+    )
+
+    page_text = get_player_page_text(
+        link
+    )
+
+    if not page_text:
+        return (
+            "❌ **Could not download the player page.**"
+        )
+
+    progress(
+        0.70,
+        desc="Extracting player details with AI..."
+    )
+
+    player_data = extract_player_details(
+        player_name,
+        page_text
+    )
+
+    if not player_data:
+        return (
+            "❌ **Gemini could not extract the player data.**"
+        )
+
+    progress(
+        0.90,
+        desc="Saving player data..."
+    )
+
+    save_player_details(player_data)
+
+    print("Player saved successfully.")
+
+    progress(
+        1.0,
+        desc="Complete!"
+    )
+
+    return format_player_result(player_data)
+
+# ============================================================
+# CEV COMPETITION PIPELINE
+# ============================================================
+
+def search_competition(competition_name):
+
+    url = "https://google.serper.dev/search"
+
+    query = (
+        f'site:www-old.cev.eu/Competition-Area/competition.aspx '
+        f'"{competition_name}"'
+    )
+
+    payload = {
+        "q": query
+    }
+
+    headers = {
+        "X-API-KEY": SERPER_API_KEY,
+        "Content-Type": "application/json"
+    }
+
+    try:
+
+        response = requests.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+
+        response.raise_for_status()
+
+        return response.json().get("organic", [])
+
+    except Exception as e:
+
+        print(f"Serper error: {e}")
+
+        return []
+
+
+def select_competition_url(
+    competition_name,
+    search_results
+):
+
+    if not search_results:
+        return None
+
+    results_text = "\n\n".join(
+        [
+            f"TITLE: {r.get('title')}\n"
+            f"URL: {r.get('link')}\n"
+            f"SNIPPET: {r.get('snippet', '')}"
+            for r in search_results[:5]
+        ]
+    )
+
+    prompt = f"""
+You are selecting the official CEV competition page.
+
+Requested competition:
+
+{competition_name}
+
+Search results:
+
+{results_text}
+
+Choose the official CEV competition page.
+
+Return ONLY valid JSON:
+
+{{
+    "selected_url": "URL",
+    "competition": "competition name",
+    "confidence": "high"
+}}
+
+Rules:
+
+- URL must be from www-old.cev.eu
+- Prefer Competition.aspx
+- Do not invent a URL
+- If there is no clear match, selected_url must be null
+"""
+
+    response = ask_gemini(prompt)
+
+    if not response:
+        return None
+
+    try:
+
+        data = json.loads(response)
+
+        return data.get("selected_url")
+
+    except json.JSONDecodeError:
+
+        print("Invalid Gemini JSON:")
+        print(response)
+
+        return None
+
+def get_page_text(url):
+
+    try:
+
+        response = requests.get(
+            url,
+            headers=HEADERS,
+            timeout=30
+        )
+
+        response.raise_for_status()
+
+    except Exception as e:
+
+        print(f"CEV request error: {e}")
+
+        return None
+
+    soup = BeautifulSoup(
+        response.text,
+        "html.parser"
+    )
+
+    for element in soup([
+        "script",
+        "style",
+        "noscript"
+    ]):
+
+        element.decompose()
+
+    lines = [
+        line.strip()
+        for line in soup.get_text(
+            separator="\n"
+        ).splitlines()
+        if line.strip()
+    ]
+
+    return "\n".join(lines)
+
+def get_standings_url(competition_url):
+
+    base_url = competition_url.split("&PID=")[0]
+
+    if "?" in base_url:
+        return base_url + "&PID=-2"
+
+    return base_url + "?PID=-2"
+
+def extract_competition_details(
+    competition_name,
+    competition_text,
+    standings_text,
+    competition_url
+):
+
+    prompt = f"""
+Extract structured information from official CEV pages.
+
+Competition:
+{competition_name}
+
+Competition URL:
+{competition_url}
+
+
+{competition_text}
+
+{standings_text}
+
+Extract:
+
+1. Final competition standings.
+
+Use ONLY the final overall standings.
+
+Do NOT use:
+
+- Pool standings
+- Group standings
+- Qualification standings
+- Match results
+- Intermediate standings
+
+
+2. Dream Team.
+
+Extract every Dream Team / Best Player position.
+
+For each player return:
+
+- award
+- player
+- country
+
+Return ONLY valid JSON:
+
+{{
+    "competition": "{competition_name}",
+    "url": "{competition_url}",
+    "final_standings": [
+        {{
+            "rank": 1,
+            "country": "country name"
+        }}
+    ],
+    "dream_team": [
+        {{
+            "award": "MVP",
+            "player": "player name",
+            "country": "country name or null"
+        }}
+    ]
+}}
+
+Rules:
+
+- Preserve CEV spelling.
+- Do not invent players.
+- Do not invent countries.
+- Rank must be an integer.
+- Sort final standings by rank.
+- Return JSON only.
+"""
+
+    response = ask_gemini(prompt)
+
+    if not response:
+        return None
+
+    try:
+
+        return json.loads(response)
+
+    except json.JSONDecodeError:
+
+        print("Gemini returned invalid JSON:")
+        print(response)
+
+        return None
+
+def save_competition_details(data):
+
+    path = Path(DATABASE_FILE)
+
+    if path.exists():
+
+        try:
+
+            with open(
+                path,
+                "r",
+                encoding="utf-8"
+            ) as f:
+
+                database = json.load(f)
+
+            if not isinstance(database, list):
+                database = []
+
+        except Exception:
+
+            database = []
+
+    else:
+
+        database = []
+
+    competition_name = data.get("competition")
+
+    # Replace existing competition
+    database = [
+        item
+        for item in database
+        if item.get("competition")
+        != competition_name
+    ]
+
+    database.append(data)
+
+    with open(
+        path,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+        json.dump(
+            database,
+            f,
+            indent=4,
+            ensure_ascii=False
+        )
+
+def format_result(data):
+
+    if not data:
+        return "❌ No data was extracted."
+
+    output = []
+
+    output.append(
+        f"# {data.get('competition', 'Unknown competition')}"
+    )
+
+    output.append("")
+
+    output.append("## Final Standings")
+
+    output.append("")
+
+    for item in data.get(
+        "final_standings",
+        []
+    ):
+
+        rank = item.get("rank")
+        country = item.get("country")
+
+        output.append(
+            f"{rank}. {country}"
+        )
+
+    output.append("")
+
+    output.append("## Dream Team")
+
+    output.append("")
+
+    for player in data.get(
+        "dream_team",
+        []
+    ):
+
+        award = player.get("award")
+        name = player.get("player")
+        country = player.get("country")
+
+        if country:
+            output.append(
+                f"- **{award}:** {name} ({country})"
+            )
+        else:
+            output.append(
+                f"- **{award}:** {name}"
+            )
+
+    return "\n".join(output)
+
+def get_competition_details(competition_name, progress=gr.Progress()):
+    """
+    Complete CEV competition pipeline for Gradio.
+    """
+
+    if not competition_name or not competition_name.strip():
+        return "⚠️ Please enter a competition name."
+
+    competition_name = competition_name.strip()
+
+    progress(0.05, desc="Starting...")
+
+    print("\n" + "=" * 60)
+    print(f"COMPETITION: {competition_name}")
+    print("=" * 60)
+
+    progress(0.10, desc="Searching CEV through Google...")
+
+    search_results = search_competition(
+        competition_name
+    )
+
+    if not search_results:
+        return (
+            "❌ **No CEV competition was found.**\n\n"
+            "Check the competition name and try again."
+        )
+
+    print(f"Found {len(search_results)} search results.")
+
+    progress(
+        0.25,
+        desc="Identifying the correct CEV competition..."
+    )
+
+    competition_url = select_competition_url(
+        competition_name,
+        search_results
+    )
+
+    if not competition_url:
+        return (
+            "❌ **Could not identify the CEV competition page.**"
+        )
+
+    print(f"Competition URL: {competition_url}")
+
+    progress(
+        0.40,
+        desc="Downloading CEV competition page..."
+    )
+
+    competition_text = get_page_text(
+        competition_url
+    )
+
+    if not competition_text:
+        return (
+            "❌ **Could not download the CEV competition page.**"
+        )
+
+    progress(
+        0.55,
+        desc="Downloading final standings..."
+    )
+
+    standings_url = get_standings_url(
+        competition_url
+    )
+
+    print(f"Standings URL: {standings_url}")
+
+    standings_text = get_page_text(
+        standings_url
+    )
+
+    if not standings_text:
+        return (
+            "❌ **Could not download the final standings page.**"
+        )
+
+    progress(
+        0.70,
+        desc="Extracting standings and Dream Team..."
+    )
+
+    data = extract_competition_details(
+        competition_name,
+        competition_text,
+        standings_text,
+        competition_url
+    )
+
+    if not data:
+        return (
+            "❌ **Gemini could not extract the competition data.**"
+        )
+
+    progress(
+        0.90,
+        desc="Saving competition data..."
+    )
+
+    save_competition_details(data)
+
+    print("Competition saved successfully.")
+
+    progress(
+        1.0,
+        desc="Complete!"
+    )
+
+    return format_result(data)
+
+# ============================================================
+# CEV MATCH DETAILS PIPELINE
+# ============================================================
+
+
+
+# ============================================================
+# GRADIO INTERFACE
+# ============================================================
+
+with gr.Blocks(title="ACEBot - Volleyball AI") as demo:
+    
+    gr.Markdown("# ACEBot - Volleyball AI\n\nChoose what you want to search for below.")
+
+    with gr.Tabs():
+        
+        # ==========================================
+        # TAB 1: PLAYER SEARCH (Jacob)
+        # ==========================================
+        with gr.TabItem("Search Player"):
+            
+            gr.Markdown("**Enter a player name to retrieve:** Country, Clubs, Competitions")
+            
+            player_input = gr.Textbox(
+                label="Player Name",
+                placeholder="E.g., Isabelle Haak"
+            )
+            player_button = gr.Button(
+                "Get Player Details",
+                variant="primary"
+            )
+            player_output = gr.Markdown(
+                value="Results will appear here..."
+            )
+            
+            player_button.click(fn=get_player_details, inputs=player_input, outputs=player_output)
+            player_input.submit(fn=get_player_details, inputs=player_input, outputs=player_output)
+
+        # ==========================================
+        # TAB 2: COMPETITION SEARCH (Gouri)
+        # ==========================================
+        with gr.TabItem("Search Competition"):
+            
+            gr.Markdown("**Enter a CEV competition name to retrieve:** Final standings, Dream Team, Saved competition data")
+            
+            comp_input = gr.Textbox(
+                label="Competition Name",
+                placeholder="E.g., EuroVolley 2026 Women"
+            )
+            comp_button = gr.Button(
+                "Get Competition Details",
+                variant="primary"
+            )
+            comp_output = gr.Markdown(
+                value="Results will appear here..."
+            )
+            
+            comp_button.click(fn=get_competition_details, inputs=comp_input, outputs=comp_output, show_progress="full")
+            comp_input.submit(fn=get_competition_details, inputs=comp_input, outputs=comp_output, show_progress="full")
+
+        # ==========================================
+        # TAB 3: MATCH SEARCH (Mikael)
+        # ==========================================
+        with gr.TabItem("Search Match"):
+
+            gr.Markdown("**Enter match details to retrieve:** Match info, Results for the match and sets, Match statistics")
+            
+            match_input = gr.Textbox(
+                label="Match Details",
+                placeholder="E.g., Sweden vs Italy EuroVolley 2026"
+            )
+            match_button = gr.Button(
+                "Get Match Details",
+                variant="primary"
+            )
+            match_output = gr.Markdown(
+                value="Results will appear here..."
+            )
+            
+            # match_button.click(fn=get_match_details, inputs=match_input, outputs=match_output)
+            # match_input.submit(fn=get_match_details, inputs=match_input, outputs=match_output)
+
+if __name__ == "__main__":
+
+    print("\nStarting CEV Volleyball Bot...")
+
+    demo.launch(
+        inbrowser=True,
+        show_error=True
+    )
+
+

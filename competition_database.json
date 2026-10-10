@@ -1,0 +1,182 @@
+[
+    {
+        "competition": "EuroVolley 2026 Women",
+        "url": "https://www-old.cev.eu/Competition-Area/Competition.aspx?ID=1573",
+        "final_standings": [
+            {
+                "rank": 1,
+                "country": "TÜRKIYE"
+            },
+            {
+                "rank": 2,
+                "country": "ITALY"
+            },
+            {
+                "rank": 3,
+                "country": "SERBIA"
+            },
+            {
+                "rank": 4,
+                "country": "POLAND"
+            },
+            {
+                "rank": 5,
+                "country": "THE NETHERLANDS"
+            },
+            {
+                "rank": 6,
+                "country": "GREECE"
+            },
+            {
+                "rank": 7,
+                "country": "SWEDEN"
+            },
+            {
+                "rank": 8,
+                "country": "GERMANY"
+            },
+            {
+                "rank": 9,
+                "country": "BELGIUM"
+            },
+            {
+                "rank": 10,
+                "country": "FRANCE"
+            },
+            {
+                "rank": 11,
+                "country": "CZECHIA"
+            },
+            {
+                "rank": 12,
+                "country": "SLOVENIA"
+            },
+            {
+                "rank": 13,
+                "country": "AZERBAIJAN"
+            },
+            {
+                "rank": 14,
+                "country": "CROATIA"
+            },
+            {
+                "rank": 15,
+                "country": "BULGARIA"
+            },
+            {
+                "rank": 16,
+                "country": "PORTUGAL"
+            },
+            {
+                "rank": 17,
+                "country": "ROMANIA"
+            },
+            {
+                "rank": 18,
+                "country": "SLOVAKIA"
+            },
+            {
+                "rank": 19,
+                "country": "UKRAINE"
+            },
+            {
+                "rank": 20,
+                "country": "LATVIA"
+            },
+            {
+                "rank": 21,
+                "country": "SPAIN"
+            },
+            {
+                "rank": 22,
+                "country": "AUSTRIA"
+            },
+            {
+                "rank": 23,
+                "country": "HUNGARY"
+            },
+            {
+                "rank": 24,
+                "country": "MONTENEGRO"
+            },
+            {
+                "rank": 25,
+                "country": "FINLAND"
+            },
+            {
+                "rank": 25,
+                "country": "ISRAEL"
+            },
+            {
+                "rank": 27,
+                "country": "BOSNIA & HERZEGOVINA"
+            },
+            {
+                "rank": 27,
+                "country": "DENMARK"
+            },
+            {
+                "rank": 27,
+                "country": "ESTONIA"
+            },
+            {
+                "rank": 27,
+                "country": "GEORGIA"
+            },
+            {
+                "rank": 27,
+                "country": "KOSOVO"
+            },
+            {
+                "rank": 27,
+                "country": "NORTH MACEDONIA"
+            },
+            {
+                "rank": 27,
+                "country": "SWITZERLAND"
+            }
+        ],
+        "dream_team": [
+            {
+                "award": "MVP",
+                "player": "VARGAS Melissa Teresa",
+                "country": "TÜRKIYE"
+            },
+            {
+                "award": "Setter",
+                "player": "ORRO Alessia",
+                "country": "ITALY"
+            },
+            {
+                "award": "Opposite",
+                "player": "VARGAS Melissa Teresa",
+                "country": "TÜRKIYE"
+            },
+            {
+                "award": "Outside Spiker",
+                "player": "SYLLA Myriam Fatime",
+                "country": "ITALY"
+            },
+            {
+                "award": "Outside Spiker",
+                "player": "CEBECİOĞLU Derya",
+                "country": "TÜRKIYE"
+            },
+            {
+                "award": "Middle Blocker",
+                "player": "KURTAGIC Hena",
+                "country": "SERBIA"
+            },
+            {
+                "award": "Middle Blocker",
+                "player": "GÜNEŞ Zehra",
+                "country": "TÜRKIYE"
+            },
+            {
+                "award": "Libero",
+                "player": "ÖRGE Gizem",
+                "country": "TÜRKIYE"
+            }
+        ]
+    }
+]

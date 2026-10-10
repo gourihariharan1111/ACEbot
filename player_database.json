@@ -1,0 +1,35 @@
+[
+    {
+        "full_name": "Isabelle Haak",
+        "country": "SWEDEN",
+        "clubs": [
+            "A. Carraro Prosecco DOC CONEGLIANO",
+            "A. Carraro Imoco CONEGLIANO",
+            "VakifBank ISTANBUL",
+            "Savino Del Bene SCANDICCI",
+            "BEZIERS VB"
+        ],
+        "competitions": [
+            "European Cups",
+            "CEV Volleyball European League",
+            "CEV Volleyball European Golden League",
+            "CEV EuroVolley 2026",
+            "CEV Volleyball European Silver League",
+            "CEV EuroVolley 2023",
+            "CEV EuroVolley 2021",
+            "CEV Volleyball Silver European League",
+            "CEV Volleyball European Championship",
+            "CEV U19/U20 Volleyball European Championship",
+            "CEV Champions League Volley 2021 - Women"
+        ]
+    },
+    {
+        "full_name": "Elsa Åström",
+        "country": "Sweden",
+        "clubs": [],
+        "competitions": [
+            "CEV U20 Volleyball European Championship 2027",
+            "CEV U18 Volleyball European Championship 2026"
+        ]
+    }
+]
