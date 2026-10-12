@@ -21,7 +21,7 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 
-MODEL_NAME = "gemini-3.8-flash"
+MODEL_NAME = "gemini-3.7-flash"
 DATABASE_FILE = "competition_database.json"
 PLAYER_DB_FILE = "player_database.json"
 
@@ -105,7 +105,7 @@ def search_player(player_name):
 
         data = response.json()
 
-        return data.get("organic", [])[:3]
+        return data.get("organic", [])
 
     except Exception as e:
 
@@ -165,31 +165,33 @@ Return ONLY valid JSON and do not include any other text.
 def get_player_page_text(url):
 
     try:
-
-        response = requests.get(
-            url,
-            headers=HEADERS,
-            timeout=30
-        )
-
+        response = requests.get(url, headers=HEADERS, timeout=30)
         response.raise_for_status()
-
     except Exception as e:
-
         print(f"CEV request error: {e}")
-
         return None
 
-    soup = BeautifulSoup(
-        response.text,
-        "html.parser"
-    )
+    soup = BeautifulSoup(response.text, "html.parser")
+    text = soup.get_text(separator=' ', strip=True)
 
-    return soup.get_text(
-        separator=' ',
-        strip=True
-    )
+    player_id = None
+    team_id = None
 
+    if "?" in url:
+        query_string = url.split("?", 1)[1]
+        for pair in query_string.split("&"):
+            if "=" in pair:
+                key, val = pair.split("=", 1)
+                if key.lower() == "playerid":
+                    player_id = val
+                elif key.lower() == "teamid":
+                    team_id = val
+
+    if player_id and team_id:
+        photo_url = f"https://www-old.cev.eu/Modules/PlayerPhoto/TeamPlayer_Photo_115_160.aspx?ID={player_id}&TeamID={team_id}"
+        text += f"\n[PHOTO_URL: {photo_url}]"
+
+    return text
 
 def extract_player_details(
     player_name,
@@ -200,9 +202,12 @@ def extract_player_details(
 Analyze the following text data regarding the volleyball player '{player_name}'.
 Return the result as a valid JSON object. It must ONLY contain the following keys and no surrounding explanation or markdown:
 - full_name (str, the player's full and correctly spelled name)
-- country (str, nationality or the country the player represents)
+- position (str, the designated field position of the player, or null if missing)
+- height (int, the physical height of the player in centimeters, or null if missing)
+- country (list of strings, nationalities or countries the player represents, capturing both if dual nationality is listed)
 - clubs (list of strings, all clubs the player has played for mentioned in the data)
-- competitions (list of strings, all tournaments or leagues the player has participated in mentioned in the data)
+- competitions (list of strings, only the competitions listed under the player's history, National teams and Club teams. Format EVERY entry strictly as "Period/Competition (Team)" from the data. Do not invent competitions or duplicate entries.
+- photo_url (str, the URL of the player's photo if present at the end of the text, otherwise null)
 
 If any detail is missing from the text data, set its value to null or an empty list ([]). Do not guess or hallucinate any information.
 
@@ -281,43 +286,49 @@ def save_player_details(data):
 
 
 def format_player_result(data):
-
     if not data:
         return "❌ No data was extracted."
 
     output = []
+    output.append(f"### {data.get('full_name', 'Unknown Player')}\n")
+    
+    if data.get("photo_url"):
+        output.append(f"![Player Photo]({data.get('photo_url')})\n")
 
-    output.append(
-        f"### {data.get('full_name', 'Unknown Player')}"
-    )
+    pos = data.get("position")
+    if pos:
+        output.append(f"**Position:** {pos}\n")
+        
+    height = data.get("height")
+    if height:
+        output.append(f"**Height:** {height}\n")
 
-    output.append("")
-
-    output.append(
-        f"**Country:** {data.get('country', 'Unknown')}"
-    )
-
-    output.append("")
-
+    countries = data.get('country', [])
+    if isinstance(countries, list) and countries:
+        country_str = " / ".join(countries)
+    elif isinstance(countries, str):
+        country_str = countries
+    else:
+        country_str = "Unknown"
+        
+    output.append(f"**Country:** {country_str}\n")
     output.append("**Clubs:**")
 
     clubs = data.get("clubs", [])
-
     if clubs:
-        output.append(", ".join(clubs))
+        for club in clubs:
+            output.append(f"* {club}")
     else:
-        output.append("None listed")
+        output.append("* None listed")
 
-    output.append("")
-
-    output.append("**Competitions:**")
+    output.append("\n**Competitions:**")
 
     comps = data.get("competitions", [])
-
     if comps:
-        output.append(", ".join(comps))
+        for comp in comps:
+            output.append(f"* {comp}")
     else:
-        output.append("None listed")
+        output.append("* None listed")
 
     return "\n".join(output)
 
@@ -416,7 +427,7 @@ def get_player_details(
 
     progress(
         0.70,
-        desc="Extracting player details with AI..."
+        desc="Extracting player details..."
     )
 
     player_data = extract_player_details(
@@ -426,7 +437,7 @@ def get_player_details(
 
     if not player_data:
         return (
-            "❌ **Gemini could not extract the player data.**"
+            "❌ **Could not extract the player data.**"
         )
 
     progress(
