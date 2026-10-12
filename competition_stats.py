@@ -11,11 +11,6 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
-
-# ============================================================
-# CONFIGURATION
-# ============================================================
-
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -368,7 +363,7 @@ def save_competition_details(data):
 def format_result(data):
 
     if not data:
-        return "❌ No data was extracted."
+        return " No data was extracted."
 
     output = []
 
@@ -426,7 +421,7 @@ def get_competition_details(competition_name, progress=gr.Progress()):
     """
 
     if not competition_name or not competition_name.strip():
-        return "⚠️ Please enter a competition name."
+        return " Please enter a competition name."
 
     competition_name = competition_name.strip()
 
@@ -444,7 +439,7 @@ def get_competition_details(competition_name, progress=gr.Progress()):
 
     if not search_results:
         return (
-            "❌ **No CEV competition was found.**\n\n"
+            " **No CEV competition was found.**\n\n"
             "Check the competition name and try again."
         )
 
@@ -462,7 +457,7 @@ def get_competition_details(competition_name, progress=gr.Progress()):
 
     if not competition_url:
         return (
-            "❌ **Could not identify the CEV competition page.**"
+            " **Could not identify the CEV competition page.**"
         )
 
     print(f"Competition URL: {competition_url}")
@@ -478,7 +473,7 @@ def get_competition_details(competition_name, progress=gr.Progress()):
 
     if not competition_text:
         return (
-            "❌ **Could not download the CEV competition page.**"
+            " **Could not download the CEV competition page.**"
         )
 
     progress(
@@ -498,7 +493,7 @@ def get_competition_details(competition_name, progress=gr.Progress()):
 
     if not standings_text:
         return (
-            "❌ **Could not download the final standings page.**"
+            " **Could not download the final standings page.**"
         )
 
     progress(
@@ -515,7 +510,7 @@ def get_competition_details(competition_name, progress=gr.Progress()):
 
     if not data:
         return (
-            "❌ **Gemini could not extract the competition data.**"
+            " **Gemini could not extract the competition data.**"
         )
 
     progress(
