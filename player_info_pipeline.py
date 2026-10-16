@@ -79,8 +79,7 @@ def search_player(player_name):
     url = "https://google.serper.dev/search"
 
     query = (
-        f'site:www-old.cev.eu/Competition-Area/PlayerDetails.aspx '
-        f'"{player_name}"'
+        f"site:www-old.cev.eu/Competition-Area/PlayerDetails.aspx {player_name}"
     )
 
     payload = {
@@ -104,15 +103,34 @@ def search_player(player_name):
         response.raise_for_status()
 
         data = response.json()
+        organic_results = data.get("organic", [])
 
-        return data.get("organic", [])
+        if organic_results:
+            return organic_results
+
+        fallback_payload = {"q": f"Volleyball player {player_name}",
+                            "autocorrect": True}
+        fallback_response = requests.post(url, headers=headers, json=fallback_payload, timeout=30)
+        fallback_data = fallback_response.json()
+        
+        if "spelling" in fallback_data and "text" in fallback_data["spelling"]:
+            return f"DID_YOU_MEAN:{fallback_data['spelling']['text']}"
+        
+        fallback_organic = fallback_data.get("organic", [])
+        if fallback_organic:
+            first_title = fallback_organic[0].get("title", "")
+            clean_name = first_title.split(" - ")[0].split(" (@")[0].split(" | ")[0].split(" • ")[0].strip()
+            
+            if clean_name:
+                return f"DID_YOU_MEAN:{clean_name}"
+        
+        return []
 
     except Exception as e:
 
         print(f"Serper error: {e}")
 
         return []
-
 
 def select_player_url(
     player_name,
@@ -354,6 +372,10 @@ def get_player_details(
     search_results = search_player(
         player_name
     )
+
+    if isinstance(search_results, str) and search_results.startswith("DID_YOU_MEAN:"):
+        corrected_name = search_results.split(":")[1]
+        return f"❌ Did you mean: {corrected_name}?"
 
     if not search_results:
         return (
